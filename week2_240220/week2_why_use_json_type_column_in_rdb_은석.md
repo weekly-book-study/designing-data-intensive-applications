@@ -2,10 +2,9 @@
 
 ## **RDB에 JSON 타입의 컬럼을 허용하는 이유는 무엇일까?**
     
-책에 나온 것처럼 단순히 nosql의 장점을 흡수하고자 하는 의도일까?
-나라면, 절대 JSON 타입을 RDB에서 사용할 일이 없지 싶었다.
-JSON을 허용하는 것은 그렇다 치고, 왜 사용하는 것인지 이해해보고 싶었다.
-실제 사례들을 토대로 이야기를 진행했는데, 나온 JSON 컬럼 사용 예시는 다음과 같았다.
+### 저라면, 절대 JSON 타입을 RDB에서 사용할 일이 없지 싶었습니다..
+JSON을 허용하는 것은 그렇다 치고, 왜 사용하는 것인지를 이해해보고 싶었습니다.
+실제 사례들을 토대로 이야기를 진행했는데, 나온 JSON 컬럼 사용 예시는 다음과 같았습니다.
 - 서비스의 특정 UI에서 다루는 데이터는 변경될 가능성이 적고, 그 UI에서만 다루기 때문에 json 컬럼으로 저장한다.
     
     → 납득. but, text로도 관리할 수 있지 않을까?
@@ -15,15 +14,17 @@ JSON을 허용하는 것은 그렇다 치고, 왜 사용하는 것인지 이해�
 - 기타 등등..
 <br>
 
-계속해서 들었던 의문은 다음과 같았다.
+계속해서 들었던 의문은 다음과 같았습니다.
 
 *“Text 타입으로 해결하면 되지 않나?”, “굳이 json을 사용할 이유가?”, “구우우우욷이?”*
 
-한 20분을 이거 가지고 열띤 토론을 벌이다가, Jackson 라이브러리의 Subtype, 그 중에서도 2.12 버전 부터 제공하고 있는 Deduction 기반의 Subtype기능을 이야기하면서 나름의 실마리를 잡아갔던 것 같다.
+한 20분을 이거 가지고 열띤 토론을 벌이다가, Jackson 라이브러리의 Subtype, 그 중에서도 2.12 버전 부터 제공하고 있는 Deduction 기반의 Subtype기능을 이야기하면서 나름의 실마리를 잡아갔던 것 같습니다.
+<br>
 
-우리는 같이 어떤 [블로그](https://see-ro-e.tistory.com/340) 글를 보면서 (어쩌다 봤는지는 기억이 나지 않는다;; 아마도 민석님의 소개) Jackson의 Subtype 에 대해 이야기를 나누었다.
+### Jackson의 Subtype을 보면서 실마리를 잡다
+우리는 같이 어떤 [블로그](https://see-ro-e.tistory.com/340) 글를 보면서 (어쩌다 봤는지는 기억이 나지 않습니다;; 아마도 민석님의 소개) Jackson의 Subtype 에 대해 이야기를 나누었습니다.
 
-블로그의 예시 코드는 다음과 같았다.
+블로그의 예시 코드는 대강 다음과 같았습니다.
 
 ```kotlin
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS)
@@ -35,61 +36,44 @@ sealed class Character{
     data class Dealer(override val name:String, val atk: Double) :Character()
 }
 
-data class World(
-    val characters : List<Character> = emptyList(),
-    val name: String = ""
-)
-
-fun main(args: Array<String>) {
-    val world = World(
-        characters = listOf(
-            Character.Tanker("Tanker",100),
-            Character.Dealer("Dealer",100.0)
-        ),
-        name = "MyWorld"
-    )
-
-    //kotlin 으로 작성해서 모듈 추가함
-    val objectMapper = JsonMapper.builder()
-        .addModule(KotlinModule(strictNullChecks = true))
-        .build()
-
-    val serialized = objectMapper.writeValueAsString(world)
-    println(serialized)  
-    //{"characters":[{"@class":"Character$Tanker","name":"Tanker","def":100},{"@class":"Character$Dealer","name":"Dealer","atk":100.0}],"name":"MyWorld"}
-
-    val deserialized : World = objectMapper.readValue(serialized, World::class.java)
-    println(deserialized)
-        //World(characters=[Tanker(name=Tanker, def=100), Dealer(name=Dealer, atk=100.0)], name=MyWorld)
-}
+// ...
 ```
 
-Subtype 기능에 대해서 간단히 설명하자면, 그냥 json 데이터를 받아서 “타입을 줄 때 @JsonSubTypes 내에 적힌 타입 중 하나로 해석하자” 라는 것이다. 그리고 Deduction 기반이라는 것은, json 데이터 내의 필드명들을 통해 타입을 구별하자는 것이다.
+Subtype 기능에 대해서 간단히 설명하자면, 그냥 json 데이터를 받아서 _“타입을 줄 때 @JsonSubTypes 내에 적힌 타입 중 하나로 해석하자”_ 라는 것입니다. 그리고 Deduction 기반이라는 것은, _"json 데이터 내의 필드명들을 통해 타입을 구별하자"_는 것입니다.
 
-이해가 좀 되지 않았다. 왜 굳이?? (이럴 때 불만이 좀 생긴다) 
+이해가 좀 되지 않았습니다. 왜 굳이?? 이렇게 해야 돼? (이럴 때 불만이 좀 생깁니다) 
 
 어차피 Tanker, Dealer는 Character의 상속 클래스 아닌가? 그럼 db table 상에서는 Character 테이블 하나 만들고 Tanker, Dealer도 하나씩 만들어서 FK 적당히 해서 이어서 이케저케 사용하면 되는 거 아냐? 
+이러면 좋은 점은 그냥 외부에서 Character 데이터를 받아서 처리해야 할 때 그냥 받으면 된다 정도 아닌가.. 
 
-이러면 좋은 점은 그냥 외부에서 Character 데이터를 받아서 처리해야 할 때 그냥 받으면 된다 정도 아닌가.. 오?
+오?
 
-이 경우에는 db에 JSON 타입으로 데이터를 저장한 뒤, 다시 읽어들일 때 subtype 방식으로 런타임에 데이터의 타입을 부여해줄 수가 있게 된다. 진짜 동적으로 타입을 지정해주게 되는 것이다.. 만일 마법사, 힐러 등의 직업이 추가되면서 name 외의 필드가 각자 마구마구 추가되면 이러한 데이터 관리 방식은 꽤 유효한 방법이 될 것이다.
+이렇게 되면 db에 JSON 타입으로 데이터를 저장한 뒤, 다시 읽어들일 때 subtype 방식으로 런타임에 데이터의 타입을 부여해줄 수가 있게 됩니다. 진짜 동적으로 타입을 지정해주게 되는 것이죠.. 만일 마법사, 힐러 등의 직업이 추가되면서 name 외의 필드가 각자 마구마구 추가되면 이러한 데이터 관리 방식은 꽤 유효한 방법이 될 것입니다.
 
-> json 컬럼을 사용할지 말지를 결정하는 것은 이제 **DB와 애플리케이션 중 어느 쪽이 더 타입을 명시적으로 관리할 책임을 가질 것이냐**에 대한 문제를 판단하는 것에 가깝다.
+  
+<BR>
 
-슈퍼, 서브 테이블들을 나누었던 것은 DB에서 데이터들의 타입을 명확히 쓰는 시점(Scheme-on-write)에 관리하며 타입 관리에 대한 책임을 가져가는 것이다. DB는 데이터 타입, 제약 조건 등의 방식으로 이 책임을 수행해낸다.
+### JSON 컬럼 사용을 책임의 문제로 가져오다
 
-애플리케이션에서 JSON 컬럼이 포함된 튜플들을 읽어왔을 때 타입을 정한다는 것은, **애플리케이션에 타입 관리에 대한 책임을 두는 것**과 마찬가지라고 생각된다. DB에서 수행했던 일을, 결국 애플리케이션에 두는 것뿐인 것이다.
+> 이제 json 컬럼을 사용할지 말지를 결정하는 것은 **DB와 애플리케이션 중 어느 쪽이 더 타입을 명시적으로 관리할 책임을 가질 것이냐**에 대한 문제를 판단하는 것에 가까워졌습니다.
 
-결론은 다음과 같다. JSON 데이터 타입을 사용하는 것은 애플리케이션에게 데이터 타입을 판단할 수 있는 책임과 권한을 부여해준다는 것이고, 이를 통해 이른 바 RDB를 통한 읽기 스키마(Scheme-on-read)를 가능케 한다. (조금 과격한 의견일 수도 있다..)
+슈퍼, 서브 테이블들을 나누었던 것은 **DB에서 타입 관리에 대한 책임을 가져가서 데이터들의 타입을 명확히 쓰는 시점(Scheme-on-write)에 관리하는 것**입니다. DB는 데이터 타입, 제약 조건 등의 방식으로 이 책임을 수행해냅니다.
 
-마지막으로 나라면 json 컬럼을 어디에 쓸지 생각을 정리해보았다.
+애플리케이션에서 JSON 컬럼이 포함된 튜플들을 읽어왔을 때 타입을 정한다는 것은, **애플리케이션에 타입 관리에 대한 책임을 두는 것**과 마찬가지라고 생각됩니다. DB에서 수행했던 일을, 결국 애플리케이션에 두는 것뿐인 것입니다.
+
+결론은 다음과 같습니다. JSON 데이터 타입을 사용하는 것은 애플리케이션에게 데이터 타입을 판단할 수 있는 책임과 권한을 부여해준다는 것이고, 이를 통해 이른 바 RDB를 통한 읽기 스키마(Scheme-on-read)를 가능케 합니다. (조금 과격한 의견일 수도 있습니다..)
+
+<br>
+마지막으로 저라면 json 컬럼을 어디에 쓸지 생각을 정리해보았습니다.
 
 - 정합성이 보장되어야 하는 json
 - db에서 튜플 데이터를 읽고, subtype 방식으로 런타임에 데이터의 타입을 부여해 주려고 할 경우
 - 외부에서 데이터 변경을 주도하고, 변경이 많이 발생할 수 있을 때
-    - 오늘 스터디 주제로 다루었던 avro와 비슷한 결이 있다고 생각된다.
 
-<br><br><br><br><br><br><br><br>
+<br>
+
+### 참고
+- [Jackson Subtype 별 Polymorphic De/Serialization 을 제공하는 Deduction](https://see-ro-e.tistory.com/340)<br><br><br><br><br><br><br><br>
 
 +++++결론이 뭔가 부족하다고 느낄 수 있어서, GPT의 의견을 첨부합니다..^^
 
