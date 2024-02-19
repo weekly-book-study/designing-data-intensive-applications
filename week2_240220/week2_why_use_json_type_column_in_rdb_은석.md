@@ -1,0 +1,108 @@
+*사견을 가득 담아 스터디 때 나눴던 이야기 중 기억에 남는 내용을 기록해봅니다.
+
+## **RDB에 JSON 타입의 컬럼을 허용하는 이유는 무엇일까?**
+    
+책에 나온 것처럼 단순히 nosql의 장점을 흡수하고자 하는 의도일까?
+나라면, 절대 JSON 타입을 RDB에서 사용할 일이 없지 싶었다.
+JSON을 허용하는 것은 그렇다 치고, 왜 사용하는 것인지 이해해보고 싶었다.
+실제 사례들을 토대로 이야기를 진행했는데, 나온 JSON 컬럼 사용 예시는 다음과 같았다.
+- 서비스의 특정 UI에서 다루는 데이터는 변경될 가능성이 적고, 그 UI에서만 다루기 때문에 json 컬럼으로 저장한다.
+    
+    → 납득. but, text로도 관리할 수 있지 않을까?
+    
+- 만약 애플리케이션 시작 시 대부분의 데이터들을 불러와야 하는 경우, json을 사용할 수 있다.
+- json 데이터도 rdb를 통해 정합성을 부여하고 싶을 때
+- 기타 등등..
+<br>
+
+계속해서 들었던 의문은 다음과 같았다.
+
+*“Text 타입으로 해결하면 되지 않나?”, “굳이 json을 사용할 이유가?”, “구우우우욷이?”*
+
+한 20분을 이거 가지고 열띤 토론을 벌이다가, Jackson 라이브러리의 Subtype, 그 중에서도 2.12 버전 부터 제공하고 있는 Deduction 기반의 Subtype기능을 이야기하면서 나름의 실마리를 잡아갔던 것 같다.
+
+우리는 같이 어떤 [블로그](https://see-ro-e.tistory.com/340) 글를 보면서 (어쩌다 봤는지는 기억이 나지 않는다;; 아마도 민석님의 소개) Jackson의 Subtype 에 대해 이야기를 나누었다.
+
+블로그의 예시 코드는 다음과 같았다.
+
+```kotlin
+@JsonTypeInfo(use = JsonTypeInfo.Id.CLASS)
+@JsonSubTypes(
+    Type(value = Character.Tanker::class), Type(Character.Dealer::class))
+sealed class Character{
+    abstract val name: String
+    data class Tanker(override val name:String, val def: Int) :Character()
+    data class Dealer(override val name:String, val atk: Double) :Character()
+}
+
+data class World(
+    val characters : List<Character> = emptyList(),
+    val name: String = ""
+)
+
+fun main(args: Array<String>) {
+    val world = World(
+        characters = listOf(
+            Character.Tanker("Tanker",100),
+            Character.Dealer("Dealer",100.0)
+        ),
+        name = "MyWorld"
+    )
+
+    //kotlin 으로 작성해서 모듈 추가함
+    val objectMapper = JsonMapper.builder()
+        .addModule(KotlinModule(strictNullChecks = true))
+        .build()
+
+    val serialized = objectMapper.writeValueAsString(world)
+    println(serialized)  
+    //{"characters":[{"@class":"Character$Tanker","name":"Tanker","def":100},{"@class":"Character$Dealer","name":"Dealer","atk":100.0}],"name":"MyWorld"}
+
+    val deserialized : World = objectMapper.readValue(serialized, World::class.java)
+    println(deserialized)
+        //World(characters=[Tanker(name=Tanker, def=100), Dealer(name=Dealer, atk=100.0)], name=MyWorld)
+}
+```
+
+Subtype 기능에 대해서 간단히 설명하자면, 그냥 json 데이터를 받아서 “타입을 줄 때 @JsonSubTypes 내에 적힌 타입 중 하나로 해석하자” 라는 것이다. 그리고 Deduction 기반이라는 것은, json 데이터 내의 필드명들을 통해 타입을 구별하자는 것이다.
+
+이해가 좀 되지 않았다. 왜 굳이?? (이럴 때 불만이 좀 생긴다) 
+
+어차피 Tanker, Dealer는 Character의 상속 클래스 아닌가? 그럼 db table 상에서는 Character 테이블 하나 만들고 Tanker, Dealer도 하나씩 만들어서 FK 적당히 해서 이어서 이케저케 사용하면 되는 거 아냐? 
+
+이러면 좋은 점은 그냥 외부에서 Character 데이터를 받아서 처리해야 할 때 그냥 받으면 된다 정도 아닌가.. 오?
+
+이 경우에는 db에 JSON 타입으로 데이터를 저장한 뒤, 다시 읽어들일 때 subtype 방식으로 런타임에 데이터의 타입을 부여해줄 수가 있게 된다. 진짜 동적으로 타입을 지정해주게 되는 것이다.. 만일 마법사, 힐러 등의 직업이 추가되면서 name 외의 필드가 각자 마구마구 추가되면 이러한 데이터 관리 방식은 꽤 유효한 방법이 될 것이다.
+
+> json 컬럼을 사용할지 말지를 결정하는 것은 이제 **DB와 애플리케이션 중 어느 쪽이 더 타입을 명시적으로 관리할 책임을 가질 것이냐**에 대한 문제를 판단하는 것에 가깝다.
+
+슈퍼, 서브 테이블들을 나누었던 것은 DB에서 데이터들의 타입을 명확히 쓰는 시점(Scheme-on-write)에 관리하며 타입 관리에 대한 책임을 가져가는 것이다. DB는 데이터 타입, 제약 조건 등의 방식으로 이 책임을 수행해낸다.
+
+애플리케이션에서 JSON 컬럼이 포함된 튜플들을 읽어왔을 때 타입을 정한다는 것은, **애플리케이션에 타입 관리에 대한 책임을 두는 것**과 마찬가지라고 생각된다. DB에서 수행했던 일을, 결국 애플리케이션에 두는 것뿐인 것이다.
+
+결론은 다음과 같다. JSON 데이터 타입을 사용하는 것은 애플리케이션에게 데이터 타입을 판단할 수 있는 책임과 권한을 부여해준다는 것이고, 이를 통해 이른 바 RDB를 통한 읽기 스키마(Scheme-on-read)를 가능케 한다. (조금 과격한 의견일 수도 있다..)
+
+마지막으로 나라면 json 컬럼을 어디에 쓸지 생각을 정리해보았다.
+
+- 정합성이 보장되어야 하는 json
+- db에서 튜플 데이터를 읽고, subtype 방식으로 런타임에 데이터의 타입을 부여해 주려고 할 경우
+- 외부에서 데이터 변경을 주도하고, 변경이 많이 발생할 수 있을 때
+    - 오늘 스터디 주제로 다루었던 avro와 비슷한 결이 있다고 생각된다.
+
+<br><br><br><br><br><br><br><br>
+
++++++결론이 뭔가 부족하다고 느낄 수 있어서, GPT의 의견을 첨부합니다..^^
+
+JSON 타입의 컬럼을 RDB에 허용하는 이유는 다양하며, 여러 상황에 따라 선택할 수 있는 유연성을 제공하기 때문입니다. 몇 가지 관점에서 설명해보겠습니다.
+1.
+
+1. **구조의 유연성:**
+    - JSON 타입은 비정형 데이터를 저장하기에 적합하며, 데이터 구조가 자주 변경되는 환경에서 특히 유용합니다. 예를 들어, 서비스의 특정 UI에서만 사용되는 데이터나 애플리케이션 시작 시 대량의 다양한 데이터를 처리해야 하는 경우, JSON 타입을 사용하면 데이터 모델을 쉽게 조정할 수 있습니다.
+2. **읽기 중심 데이터의 효율성:**
+    - JSON은 읽기 중심의 데이터에 적합한 형식입니다. 특정 UI에서만 사용되는 데이터나 읽기 작업이 많은 경우, JSON을 사용함으로써 읽기 성능을 향상시킬 수 있습니다. 불필요한 조인을 피하고 필요한 데이터를 한 번에 가져올 수 있어 효율적입니다.
+3. **객체 지향적인 모델 표현:**
+    - 특정 객체 지향 모델을 JSON으로 표현할 때 유용합니다. 블로그에서 언급한 Jackson 라이브러리의 Subtype 기능은 이를 더 쉽게 구현할 수 있게 해줍니다. 이러한 모델을 RDB에서 표현하려면 여러 테이블과 조인이 필요할 수 있지만, JSON을 사용하면 한 곳에서 관리할 수 있습니다.
+4. **프로토콜의 자유로운 사용:**
+    - 다양한 데이터 형식을 프로토콜에 맞춰 송수신해야 할 때 JSON은 일반적으로 사용되는 형식 중 하나입니다. RDB에 JSON을 사용함으로써 프로토콜 간 데이터 전송이 용이해집니다.
+5. **간편한 데이터 저장:**
+    - 특정 데이터를 쉽게 저장하고 검색하고자 할 때, JSON 타입은 편리한 선택일 수 있습니다. 필요한 데이터를 한 컬럼에 저장하고 복잡한 구조를 갖지 않는 경우, JSON을 사용하여 데이터를 간소화하고 가독성을 높일 수 있습니다.
