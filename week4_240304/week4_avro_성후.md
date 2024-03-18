@@ -1,0 +1,1 @@
+- [blog 포스팅](https://junior-datalist.tistory.com/384)으로 대체 
